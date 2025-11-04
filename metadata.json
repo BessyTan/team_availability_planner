@@ -1,0 +1,5 @@
+{
+  "name": "Team Availability Planner",
+  "description": "A tool for team members to mark their weekly availability and find the best matching time slots for meetings. The tool visualizes overlapping availability with a color-coded grid, making it easy to schedule team events.",
+  "requestFramePermissions": []
+}
