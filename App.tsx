@@ -1,12 +1,13 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { GoogleGenAI, Type } from "@google/genai";
 import { AvailabilityGrid } from './components/AvailabilityGrid';
-import { UserPlusIcon, TrashIcon, UsersIcon, ClockIcon, CloseIcon, SparklesIcon, TrophyIcon, LinkIcon } from './components/icons';
+import { UserPlusIcon, TrashIcon, UsersIcon, ClockIcon, CloseIcon, SparklesIcon, TrophyIcon, LinkIcon, PlusCircleIcon } from './components/icons';
 import type { TimeSlot, Member, SuggestedSlot } from './types';
 import { FULL_DAYS_OF_WEEK, DEADLINE_TIMES } from './constants';
 
 
 const App: React.FC = () => {
+  const [teamId, setTeamId] = useState<string | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [currentName, setCurrentName] = useState<string>('');
   const [currentAvailability, setCurrentAvailability] = useState<TimeSlot[]>([]);
@@ -27,28 +28,32 @@ const App: React.FC = () => {
   // Effect to load state from URL on initial render
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
-    const data = urlParams.get('data');
-    if (data) {
-      try {
-        const decodedData = JSON.parse(atob(data));
-        if (decodedData.members && Array.isArray(decodedData.members)) {
-          setMembers(decodedData.members);
+    const currentTeamId = urlParams.get('teamId');
+    if (currentTeamId) {
+        setTeamId(currentTeamId);
+        const data = urlParams.get('data');
+        if (data) {
+          try {
+            const decodedData = JSON.parse(atob(data));
+            if (decodedData.members && Array.isArray(decodedData.members)) {
+              setMembers(decodedData.members);
+            }
+            if (decodedData.deadlineDay && typeof decodedData.deadlineDay === 'string') {
+              setDeadlineDay(decodedData.deadlineDay);
+            }
+            if (decodedData.deadlineTime && typeof decodedData.deadlineTime === 'string') {
+              setDeadlineTime(decodedData.deadlineTime);
+            }
+          } catch (e) {
+            console.error("Failed to parse shared data from URL", e);
+          }
         }
-        if (decodedData.deadlineDay && typeof decodedData.deadlineDay === 'string') {
-          setDeadlineDay(decodedData.deadlineDay);
-        }
-        if (decodedData.deadlineTime && typeof decodedData.deadlineTime === 'string') {
-          setDeadlineTime(decodedData.deadlineTime);
-        }
-      } catch (e) {
-        console.error("Failed to parse shared data from URL", e);
-      }
     }
   }, []);
 
   useEffect(() => {
     const calculateAndSetReminder = () => {
-        const hasSubmitted = sessionStorage.getItem('availabilitySubmitted') === 'true';
+        const hasSubmitted = sessionStorage.getItem(`availabilitySubmitted-${teamId}`) === 'true';
         if (hasSubmitted) {
             if(reminder) setReminder(null);
             return;
@@ -87,11 +92,12 @@ const App: React.FC = () => {
         }
     };
 
-    calculateAndSetReminder();
-    const interval = setInterval(calculateAndSetReminder, 60 * 1000); // Check every minute
-
-    return () => clearInterval(interval);
-  }, [deadlineDay, deadlineTime, reminder]);
+    if (teamId) {
+        calculateAndSetReminder();
+        const interval = setInterval(calculateAndSetReminder, 60 * 1000); // Check every minute
+        return () => clearInterval(interval);
+    }
+  }, [deadlineDay, deadlineTime, reminder, teamId]);
 
   const handleSlotToggle = useCallback((slot: TimeSlot) => {
     setCurrentAvailability(prev => {
@@ -127,12 +133,12 @@ const App: React.FC = () => {
     setMembers(prev => [...prev, newMember]);
     setSuggestion(null);
     setShareLink('');
-    sessionStorage.setItem('availabilitySubmitted', 'true');
+    sessionStorage.setItem(`availabilitySubmitted-${teamId}`, 'true');
     setReminder(null);
     setCurrentName('');
     setCurrentAvailability([]);
     setError('');
-  }, [currentName, currentAvailability, members]);
+  }, [currentName, currentAvailability, members, teamId]);
   
   const handleClearSelection = useCallback(() => {
       setCurrentAvailability([]);
@@ -205,10 +211,10 @@ const App: React.FC = () => {
   const handleGenerateShareLink = useCallback(() => {
     const stateToShare = { members, deadlineDay, deadlineTime };
     const base64Data = btoa(JSON.stringify(stateToShare));
-    const newUrl = `${window.location.origin}${window.location.pathname}?data=${base64Data}`;
+    const newUrl = `${window.location.origin}${window.location.pathname}?teamId=${teamId}&data=${base64Data}`;
     setShareLink(newUrl);
     setCopyButtonText('Copy');
-  }, [members, deadlineDay, deadlineTime]);
+  }, [members, deadlineDay, deadlineTime, teamId]);
 
   const handleCopyToClipboard = useCallback(() => {
     navigator.clipboard.writeText(shareLink).then(() => {
@@ -217,6 +223,21 @@ const App: React.FC = () => {
     });
   }, [shareLink]);
   
+  const handleCreateNewTeam = useCallback(() => {
+    const newTeamId = Date.now().toString(36) + Math.random().toString(36).substring(2);
+    setTeamId(newTeamId);
+    setMembers([]);
+    setCurrentName('');
+    setCurrentAvailability([]);
+    setError('');
+    setSuggestion(null);
+    setSuggestionError('');
+    setReminder(null);
+    setShareLink('');
+    const newUrl = `${window.location.origin}${window.location.pathname}?teamId=${newTeamId}`;
+    window.history.pushState({ path: newUrl }, '', newUrl);
+  }, []);
+
   const ColorLegend = () => (
     <div className="mt-4 p-4 bg-white rounded-lg shadow-md">
       <h3 className="text-lg font-semibold text-slate-700 mb-3">Legend</h3>
@@ -264,6 +285,30 @@ const App: React.FC = () => {
         )}
     </div>
   );
+  
+  if (!teamId) {
+    return (
+        <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
+            <div className="text-center max-w-lg mx-auto">
+                 <header className="mb-8">
+                    <h1 className="text-4xl md:text-5xl font-bold text-slate-900">Team Availability Planner</h1>
+                    <p className="mt-2 text-lg text-slate-600">Find the perfect time to collaborate</p>
+                </header>
+                <div className="bg-white p-8 rounded-xl shadow-lg border border-slate-200">
+                    <h2 className="text-2xl font-bold text-slate-800 mb-4">Welcome!</h2>
+                    <p className="text-slate-600 mb-6">Create a new, isolated planner for your team to get started. Each planner gets a unique, sharable link.</p>
+                    <button
+                        onClick={handleCreateNewTeam}
+                        className="w-full flex items-center justify-center px-6 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors duration-300"
+                    >
+                        <PlusCircleIcon />
+                        Create New Team Planner
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-800 font-sans p-4 sm:p-6 lg:p-8">
